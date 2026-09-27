@@ -377,4 +377,3 @@ export const SET3: LevelDef[] = [
   },
 ];
 
-export const _unusedSet3 = { SECRET, TP, GHOST, VANISH, S };

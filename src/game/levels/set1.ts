@@ -1,6 +1,5 @@
 import type { LevelDef } from "../types";
 import {
-  CHASE,
   COIN,
   CP,
   CRUSH,
@@ -9,12 +8,10 @@ import {
   GHOST,
   GOAL,
   HIDDEN,
-  MOVE,
   S,
   SECRET,
   SPIKE,
   T,
-  VANISH,
   floor,
 } from "./helpers";
 
@@ -298,5 +295,3 @@ export const SET1: LevelDef[] = [
   },
 ];
 
-/** Extra decorative imports kept for level authoring convenience. */
-export const _unused = { VANISH, MOVE, CHASE, SECRET, S };

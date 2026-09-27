@@ -5,16 +5,13 @@ import {
   CP,
   FALLB,
   FREEZE,
-  GHOST,
   GOAL,
   HIDDEN,
-  MOVE,
   S,
   SECRET,
   SPIKE,
   T,
   TP,
-  VANISH,
   WALL,
   floor,
 } from "./helpers";
@@ -287,4 +284,3 @@ export const SET2: LevelDef[] = [
   },
 ];
 
-export const _unusedSet2 = { VANISH, MOVE, GHOST, SECRET, S };
