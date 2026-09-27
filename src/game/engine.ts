@@ -386,7 +386,7 @@ export class GameEngine {
     // bounds
     p.x = Math.max(0, Math.min(p.x, this.def.w - p.w));
     if (p.y > this.def.h + 90 || p.y < -260) this.kill();
-    if (this.scroll > 0 && p.x + p.w < this.cam.x - 4) this.kill();
+    if (this.scroll > 0 && p.x + p.w < this.cam.x - 26) this.kill();
   }
 
   private landOn(e: Ent) {

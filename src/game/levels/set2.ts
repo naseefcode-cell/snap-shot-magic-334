@@ -261,7 +261,7 @@ export const SET2: LevelDef[] = [
     h: 360,
     spawn: { x: 20, y: 320 },
     par: 30,
-    scroll: 54,
+    scroll: 46,
     entities: [
       ...floor(320, [
         [0, 300],
