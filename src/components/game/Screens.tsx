@@ -390,11 +390,17 @@ export function Hud({
       >
         ESC
       </button>
-      {hud.message && (
-        <p className="absolute inset-x-0 top-[38%] text-center font-pixel text-[10px] uppercase text-accent sm:text-xs">
-          {hud.message}
-        </p>
-      )}
+    </div>
+  );
+}
+
+export function GameMessage({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-start justify-center pt-[26%]">
+      <p className="animate-fade-in border border-accent/40 bg-background/70 px-3 py-1.5 text-center font-pixel text-[9px] uppercase text-accent sm:text-[11px]">
+        {message}
+      </p>
     </div>
   );
 }

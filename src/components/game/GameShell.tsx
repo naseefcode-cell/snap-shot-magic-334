@@ -19,6 +19,7 @@ import {
   AchievementsScreen,
   CompleteScreen,
   EndingScreen,
+  GameMessage,
   Hud,
   LevelSelect,
   MenuScreen,
@@ -258,7 +259,10 @@ export default function GameShell() {
           <div className="relative aspect-video w-full border-2 border-border bg-black glow-primary">
             <canvas ref={canvasRef} className="block h-full w-full" />
             {hud && (
-              <Hud hud={hud} chaosLabel={chaosLabel} onPause={() => setScreen("paused")} />
+              <>
+                <Hud hud={hud} chaosLabel={chaosLabel} onPause={() => setScreen("paused")} />
+                {screen === "playing" && <GameMessage message={hud.message} />}
+              </>
             )}
             <TouchControls
               big={settings.bigControls}
