@@ -22,7 +22,7 @@ export type EntityType =
   | "fakegoal";
 
 export interface EntityDef {
-  id?: string;
+  id?: string | undefined;
   type: EntityType;
   x: number;
   y: number;
