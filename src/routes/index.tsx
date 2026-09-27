@@ -1,24 +1,45 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, ClientOnly } from "@tanstack/react-router";
+import { Suspense, lazy } from "react";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
+// The game touches canvas, localStorage and Web Audio, so it is client-only.
+const GameShell = lazy(() => import("@/components/game/GameShell"));
+
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Chaos Bolt — 30-level trap platformer" },
+      {
+        name: "description",
+        content:
+          "Chaos Bolt is a free browser trap platformer: 30 handcrafted levels of disappearing floors, fake exits and gravity flips. Keyboard, touch and gamepad.",
+      },
+      { property: "og:title", content: "Chaos Bolt — 30-level trap platformer" },
+      {
+        property: "og:description",
+        content:
+          "Thirty short levels that lie to you. Collect Chaos Coins, find secrets, unlock Chaos Mode. Plays in any browser, offline.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <ClientOnly fallback={<BootScreen />}>
+      <Suspense fallback={<BootScreen />}>
+        <GameShell />
+      </Suspense>
+    </ClientOnly>
+  );
+}
+
+function BootScreen() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background">
+      <p className="font-pixel text-xs text-primary">CHAOS BOLT · BOOTING…</p>
+    </main>
   );
 }
