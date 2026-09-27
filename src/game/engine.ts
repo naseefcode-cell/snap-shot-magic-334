@@ -829,6 +829,15 @@ export class GameEngine {
 
   private emitHud(force: boolean) {
     this.hudTick++;
+    // lightweight debug probe (used by automated playtests)
+    (window as unknown as { __chaosBolt?: unknown }).__chaosBolt = {
+      x: this.player.x,
+      y: this.player.y,
+      onGround: this.player.onGround,
+      deaths: this.deaths,
+      level: this.levelIndex,
+      finished: this.finished,
+    };
     if (!force && this.hudTick % 10 !== 0) return;
     const coinEnts = this.ents.filter((e) => e.type === "coin");
     this.hooks.onHud({
