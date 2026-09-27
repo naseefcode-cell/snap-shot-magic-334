@@ -706,6 +706,17 @@ export class GameEngine {
             this.flash("checkpoint");
           }
           break;
+        case "teleport":
+          if (e.cooldown <= 0 && overlap(p, e)) {
+            this.burst(e.x + e.w / 2, e.y + e.h / 2, 12, "#9d7cff");
+            p.x = (e.tx ?? p.x) - p.w / 2;
+            p.y = (e.ty ?? p.y) - p.h;
+            p.vx = 0;
+            p.vy = 0;
+            audio.play("checkpoint");
+            for (const other of this.ents) if (other.type === "teleport") other.cooldown = 0.7;
+          }
+          break;
         case "goal":
           if (overlap(p, e)) this.complete();
           break;
