@@ -227,7 +227,9 @@ export default function GameShell() {
     setHud(null);
   };
 
-  const inGame = screen === "playing" || screen === "paused" || screen === "complete";
+  const pauseSettings = screen === "settings" && returnScreen === "paused";
+  const inGame =
+    screen === "playing" || screen === "paused" || screen === "complete" || pauseSettings;
   const isLast = levelRef.current === TOTAL_LEVELS - 1;
 
   const nextLevel = () => {
@@ -287,6 +289,20 @@ export default function GameShell() {
                     }}
                   />
                 )}
+                {screen === "settings" && (
+                  <SettingsPanel
+                    settings={settings}
+                    onToggle={toggleSetting}
+                    onBack={() => setScreen("paused")}
+                    onReset={() => {
+                      const fresh = resetSave();
+                      saveRef.current = fresh;
+                      setSave(fresh);
+                      setSession(0);
+                      setScreen("menu");
+                    }}
+                  />
+                )}
                 {screen === "complete" && result && (
                   <CompleteScreen
                     result={result}
@@ -340,7 +356,7 @@ export default function GameShell() {
             />
           )}
           {screen === "achievements" && <AchievementsScreen save={save} onBack={goMenu} />}
-          {screen === "settings" && (
+          {screen === "settings" && !pauseSettings && (
             <SettingsPanel
               settings={settings}
               onToggle={toggleSetting}
