@@ -127,7 +127,7 @@ export default function GameShell() {
       audio.unlock();
       audio.play("click");
       if (saveRef.current?.settings.music) audio.startMusic();
-      const mods = chaos ? rollChaos() : null;
+      const mods = chaos ? rollChaos(LEVELS[index]) : null;
       levelRef.current = index;
       chaosRef.current = mods;
       coinRef.current = new Set();

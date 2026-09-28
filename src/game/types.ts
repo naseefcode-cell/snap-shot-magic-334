@@ -58,7 +58,7 @@ export interface EntityDef {
   /** crushers / spikes only act once armed */
   armed?: boolean;
   /** label drawn on the entity (goals, decoys) */
-  label?: string;
+  label?: string | undefined;
   /** cycle length (s) for temp platforms / pulsing spikes */
   period?: number;
   /** cycle offset (s) or orbit start angle */
@@ -115,7 +115,7 @@ export interface Bonus {
 
 export interface LevelDef {
   name: string;
-  hint?: string;
+  hint?: string | undefined;
   w: number;
   h: number;
   spawn: { x: number; y: number };
