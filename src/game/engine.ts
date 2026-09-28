@@ -23,7 +23,37 @@ const AIR_FRICTION = 500;
 const COYOTE = 0.09;
 const BUFFER = 0.12;
 
-const SOLID_TYPES = new Set(["solid", "vanish", "fall", "move", "memory", "freeze", "fakewall"]);
+const SOLID_TYPES = new Set([
+  "solid", "vanish", "fall", "move", "memory", "freeze", "fakewall",
+  "conveyor", "ice", "bounce", "breakable", "runner", "follower", "orbit", "temp",
+]);
+
+/** Occasional quips after a death — never on every death. */
+const DEATH_LINES = [
+  "Interesting decision.",
+  "That wasn't supposed to work.",
+  "Almost.",
+  "Maybe don't do that again.",
+  "Okay... now you know.",
+  "Definitely intentional.",
+  "Bold strategy.",
+  "The floor sends its regards.",
+  "Physics 1, robot 0.",
+  "Noted for next time.",
+];
+
+/** Harmless ambient jokes for random events. */
+const EVENT_LINES = [
+  "WARNING: nothing is happening",
+  "did you hear that?",
+  "this message is harmless",
+  "autosave? never heard of it",
+  "the background is judging you",
+];
+
+function cycleOn(phase: number, period: number, offset: number, frac: number): boolean {
+  return (((phase + offset) % period) + period) % period < period * frac;
+}
 const HAZARD_TYPES = new Set(["spike", "crusher", "chaser"]);
 
 interface Ent extends EntityDef {
@@ -63,7 +93,7 @@ export interface EngineHooks {
   onCoin: (id: string) => void;
 }
 
-type Fx = "fakeDeath" | "fakeVictory" | "fakeLoading" | "glitch" | null;
+type Fx = "fakeDeath" | "fakeVictory" | "fakeLoading" | "glitch" | "didIt" | null;
 
 export class GameEngine {
   private canvas: HTMLCanvasElement;
@@ -125,6 +155,19 @@ export class GameEngine {
   private last = 0;
   private hudTick = 0;
   private chaos: ChaosModifiers | null = null;
+  private hazardMul = 1;
+  private jumped = false;
+  private wasGround = false;
+  private touchedIds = new Set<string>();
+  private deathSpots: { x: number; y: number }[] = [];
+  private hintSpot: { x: number; y: number } | null = null;
+  private eventTimer = 14;
+  private passer = { on: false, x: 0, y: 0, dir: 1 };
+  private bgPulse = 0;
+  private squash = 0;
+  private breakHit: Ent | null = null;
+  private bounceV = 0;
+  private clock = 0;
 
   constructor(canvas: HTMLCanvasElement, input: InputManager, hooks: EngineHooks, settings: Settings) {
     this.canvas = canvas;
@@ -148,6 +191,9 @@ export class GameEngine {
     this.sessionSecrets.clear();
     this.spawn = { ...def.spawn };
     this.finished = false;
+    this.deathSpots = [];
+    this.hintSpot = null;
+    this.eventTimer = 12 + Math.random() * 10;
     this.reset(true);
   }
 
@@ -169,8 +215,14 @@ export class GameEngine {
     this.scroll = def.scroll ?? 0;
     this.fx = null;
     this.fxTimer = 0;
-    this.message = def.hint ?? null;
-    this.msgTimer = this.message ? 3 : 0;
+    if (full) {
+      this.message = def.hint ?? null;
+      this.msgTimer = this.message ? 3 : 0;
+    }
+    this.hazardMul = this.chaos?.hazard ?? 1;
+    this.jumped = false;
+    this.touchedIds.clear();
+    this.squash = 0;
     this.cam.zoom = 1;
     this.cam.targetZoom = 1;
     this.cam.shake = 0;
@@ -189,7 +241,7 @@ export class GameEngine {
     }
 
     const p = this.player;
-    p.scale = (def.scale ?? 1) * 1;
+    p.scale = (def.scale ?? 1) * (this.chaos?.scale ?? 1);
     p.w = 18 * p.scale;
     p.h = 18 * p.scale;
     p.x = this.spawn.x;
@@ -221,7 +273,7 @@ export class GameEngine {
       falling: false,
       fade: 1,
       soft: false,
-      dead: HAZARD_TYPES.has(d.type) && !d.hidden,
+      dead: HAZARD_TYPES.has(d.type) && !d.hidden && (d.type !== "chaser" || Boolean(d.armed)),
       cooldown: 0,
     };
   }
@@ -284,6 +336,8 @@ export class GameEngine {
     }
 
     if (!this.finished && !this.player.dead) this.time += dt;
+    this.clock += dt;
+    this.updateEvents(dt);
 
     if (this.player.dead) {
       this.respawnTimer -= dt;
@@ -311,13 +365,15 @@ export class GameEngine {
     const p = this.player;
     const axis = (this.reverse ? -1 : 1) * this.input.axis;
     const maxRun = MAX_RUN * this.speedMul;
+    const onIce = p.onGround && p.support?.type === "ice";
+    const accel = onIce ? ACCEL * 0.45 : ACCEL;
 
     if (axis !== 0) {
-      p.vx += axis * ACCEL * dt;
+      p.vx += axis * accel * dt;
       p.vx = Math.max(-maxRun, Math.min(maxRun, p.vx));
       p.face = axis > 0 ? 1 : -1;
     } else {
-      const f = (p.onGround ? FRICTION : AIR_FRICTION) * dt;
+      const f = (p.onGround ? (onIce ? 160 : FRICTION) : AIR_FRICTION) * dt;
       if (Math.abs(p.vx) <= f) p.vx = 0;
       else p.vx -= Math.sign(p.vx) * f;
     }
@@ -339,6 +395,8 @@ export class GameEngine {
       p.coyote = 0;
       p.onGround = false;
       p.support = null;
+      this.jumped = true;
+      this.squash = -0.28;
       audio.play("jump");
       this.burst(p.x + p.w / 2, p.y + (sign > 0 ? p.h : 0), 5, "#7cf9c8");
     }
@@ -348,7 +406,10 @@ export class GameEngine {
     p.vy += g * dt;
     p.vy = Math.max(-900, Math.min(900, p.vy));
 
+    this.wasGround = p.onGround;
     p.onGround = false;
+    this.bounceV = 0;
+    this.breakHit = null;
 
     // X axis
     p.x += p.vx * dt;
@@ -366,22 +427,43 @@ export class GameEngine {
       if (p.vy > 0) {
         p.y = e.y - p.h;
         if (sign > 0) this.landOn(e);
+        else if (e.type === "breakable") this.breakHit = e;
         p.vy = 0;
       } else if (p.vy < 0) {
         p.y = e.y + e.h;
         if (sign < 0) this.landOn(e);
+        else if (e.type === "breakable") this.breakHit = e;
         p.vy = 0;
       }
     }
 
+    // head-butted a breakable block
+    if (this.breakHit) {
+      this.dissolve(this.breakHit);
+      this.flash("cardboard.");
+    }
+    // bounce pads
+    if (this.bounceV) {
+      p.vy = -this.bounceV * sign;
+      p.onGround = false;
+      p.support = null;
+      p.coyote = 0;
+      this.squash = -0.4;
+      audio.play("jump");
+      this.burst(p.x + p.w / 2, p.y + p.h, 10, "#ff9de2");
+    }
+
     if (p.onGround) p.coyote = COYOTE;
 
-    // carried by moving platform
+    // carried by moving platform / conveyor
     const s = p.support;
     if (s && !s.removed) {
       p.x += s.x - s.px;
       p.y += s.y - s.py;
+      if (s.type === "conveyor" && p.onGround) p.x += Math.sign(s.dx ?? 1) * (s.speed ?? 70) * dt;
     }
+
+    this.squash += (0 - this.squash) * Math.min(1, dt * 12);
 
     // bounds
     p.x = Math.max(0, Math.min(p.x, this.def.w - p.w));
@@ -391,9 +473,14 @@ export class GameEngine {
 
   private landOn(e: Ent) {
     const p = this.player;
-    if (!p.onGround) audio.play("land");
+    if (!this.wasGround) {
+      audio.play("land");
+      this.squash = 0.3;
+    }
     p.onGround = true;
     p.support = e;
+    if (e.id) this.touchedIds.add(e.id);
+    if (e.type === "bounce") this.bounceV = e.speed ?? 760;
     if (!e.touched) {
       e.touched = true;
       if (e.type === "vanish" || e.type === "fall") {
@@ -476,11 +563,54 @@ export class GameEngine {
           e.fade = near ? Math.max(0.12, e.fade - dt * 4) : Math.min(1, e.fade + dt * 3);
           break;
         }
+        case "spike": {
+          if (e.dx || e.dy) {
+            const sp = ((e.speed ?? 50) * this.hazardMul) / Math.max(1, Math.hypot(e.dx ?? 0, e.dy ?? 0));
+            const t = Math.sin(e.phase * sp);
+            e.x = e.ox + (e.dx ?? 0) * t;
+            e.y = e.oy + (e.dy ?? 0) * t;
+          }
+          break;
+        }
+        case "runner": {
+          // "helpful" platform: drifts away once the player gets close
+          if (!e.armed && Math.abs(pcx - (e.x + e.w / 2)) < (e.radius ?? 80) && Math.abs(pcy - e.y) < 140) {
+            e.armed = true;
+            audio.play("trap");
+          }
+          if (e.armed) {
+            const sp = (e.speed ?? 40) * dt;
+            const tx = e.ox + (e.dx ?? 0);
+            const ty = e.oy + (e.dy ?? 0);
+            e.x += Math.sign(tx - e.x) * Math.min(sp, Math.abs(tx - e.x));
+            e.y += Math.sign(ty - e.y) * Math.min(sp, Math.abs(ty - e.y));
+          }
+          break;
+        }
+        case "follower": {
+          const a = e.ox;
+          const b = e.ox + (e.dx ?? 100);
+          const target = Math.max(Math.min(a, b), Math.min(Math.max(a, b), pcx - e.w / 2));
+          const sp = (e.speed ?? 70) * dt;
+          e.x += Math.sign(target - e.x) * Math.min(sp, Math.abs(target - e.x));
+          break;
+        }
+        case "orbit": {
+          const r = e.radius ?? 40;
+          const ang = e.phase * (e.speed ?? 1.2) + (e.offset ?? 0);
+          e.x = e.ox + Math.cos(ang) * r;
+          e.y = e.oy + Math.sin(ang) * r;
+          break;
+        }
+        case "temp": {
+          e.soft = !cycleOn(e.phase, e.period ?? 3, e.offset ?? 0, 0.6);
+          break;
+        }
         case "crusher": {
           if (e.armed) {
             const targetY = e.oy + (e.dy ?? 0);
             const targetX = e.ox + (e.dx ?? 0);
-            const sp = (e.speed ?? 320) * dt;
+            const sp = (e.speed ?? 320) * this.hazardMul * dt;
             e.y += Math.sign(targetY - e.y) * Math.min(sp, Math.abs(targetY - e.y));
             e.x += Math.sign(targetX - e.x) * Math.min(sp, Math.abs(targetX - e.x));
           }
@@ -488,7 +618,7 @@ export class GameEngine {
         }
         case "chaser": {
           if (e.armed) {
-            const sp = (e.speed ?? 65) * dt;
+            const sp = (e.speed ?? 65) * this.hazardMul * dt;
             const dx = pcx - (e.x + e.w / 2);
             const dy = pcy - (e.y + e.h / 2);
             const len = Math.hypot(dx, dy) || 1;
@@ -510,7 +640,12 @@ export class GameEngine {
       }
 
       if (e.cooldown > 0) e.cooldown -= dt;
-      if (HAZARD_TYPES.has(e.type)) e.dead = !e.hidden;
+      if (HAZARD_TYPES.has(e.type)) {
+        e.dead =
+          !e.hidden &&
+          (e.type !== "chaser" || Boolean(e.armed)) &&
+          (!e.period || cycleOn(e.phase, e.period, e.offset ?? 0, 0.45));
+      }
     }
   }
 
@@ -527,7 +662,10 @@ export class GameEngine {
     const p = this.player;
     for (const t of this.triggers) {
       if (t.fired && t.once !== false) continue;
+      if (t.minDeaths !== undefined && this.deaths < t.minDeaths) continue;
+      if (t.maxDeaths !== undefined && this.deaths > t.maxDeaths) continue;
       if (!overlap(p, t)) continue;
+      if (t.when === "jump" && !(p.vy * (Math.sign(this.gravityMul) || 1) < -60)) continue;
       if (t.once !== false) t.fired = true;
       this.runOps(t.ops);
     }
@@ -607,9 +745,9 @@ export class GameEngine {
         break;
       case "fx":
         this.fx = op.v;
-        this.fxTimer = op.v === "fakeLoading" ? 1.7 : 1.4;
+        this.fxTimer = op.v === "fakeLoading" ? 1.7 : op.v === "didIt" ? 1.8 : 1.4;
         this.shake(op.v === "fakeDeath" ? 8 : 3);
-        audio.play(op.v === "fakeVictory" ? "complete" : "trap");
+        audio.play(op.v === "fakeVictory" || op.v === "didIt" ? "complete" : "trap");
         break;
       case "dark":
         this.dark = op.v;
@@ -641,6 +779,25 @@ export class GameEngine {
       case "freeze":
         this.frozen = op.v;
         break;
+      case "shift":
+        for (const e of this.byIds(op.ids)) {
+          this.burst(e.x + e.w / 2, e.y + e.h / 2, 8, "#9d7cff");
+          e.x += op.dx;
+          e.y += op.dy;
+          e.ox += op.dx;
+          e.oy += op.dy;
+          e.px = e.x;
+          e.py = e.y;
+        }
+        this.shake(6);
+        audio.play("trap");
+        break;
+      case "confetti": {
+        const p = this.player;
+        for (const c of ["#ffd166", "#7cf9c8", "#ff5d8f", "#9d7cff"]) this.burst(p.x + p.w / 2, p.y, 10, c);
+        audio.play("coin");
+        break;
+      }
     }
   }
 
@@ -671,9 +828,23 @@ export class GameEngine {
         this.kill();
         return;
       }
-      if (e.collected) continue;
+      if (e.hidden || e.collected) continue;
 
       switch (e.type) {
+        case "fakecheckpoint":
+          if (overlap(p, e)) {
+            e.collected = true;
+            audio.play("checkpoint");
+            this.burst(e.x + e.w / 2, e.y, 10, "#7cf9c8");
+            this.flash(e.label ?? "checkpoint! (decorative)");
+          }
+          break;
+        case "button":
+          if (!e.touched && overlap(p, e)) {
+            e.touched = true;
+            audio.play("click");
+          }
+          break;
         case "coin":
           if (overlap(p, e)) {
             e.collected = true;
@@ -739,6 +910,13 @@ export class GameEngine {
     let stars = 1;
     if (this.time <= par) stars = 2;
     if (this.deaths === 0 && coins === total) stars = 3;
+    const b = this.def.bonus;
+    let bonus: boolean | null = null;
+    if (b) {
+      if (b.kind === "nojump") bonus = !this.jumped;
+      else if (b.kind === "avoid") bonus = !this.touchedIds.has(b.id ?? "");
+      else bonus = this.sessionSecrets.size > 0;
+    }
     window.setTimeout(() => {
       this.hooks.onComplete({
         level: this.levelIndex,
@@ -748,6 +926,9 @@ export class GameEngine {
         coinTotal: total,
         stars,
         secrets: [...this.sessionSecrets],
+        par,
+        bonus,
+        bonusText: b?.text ?? null,
       });
     }, 420);
   }
@@ -761,7 +942,47 @@ export class GameEngine {
     audio.play("death");
     this.shake(9);
     this.burst(p.x + p.w / 2, p.y + p.h / 2, 22, "#ff5d8f");
+    // death hotspot tracking — repeated deaths in one spot earn a subtle hint ring
+    const spot = { x: p.x + p.w / 2, y: p.y + p.h / 2 };
+    this.deathSpots.push(spot);
+    if (this.deathSpots.length > 40) this.deathSpots.shift();
+    const near = this.deathSpots.filter((d) => Math.hypot(d.x - spot.x, d.y - spot.y) < 40).length;
+    if (near >= 4) this.hintSpot = spot;
+    if (Math.random() < 0.35) this.flash(DEATH_LINES[Math.floor(Math.random() * DEATH_LINES.length)]!);
     this.hooks.onDeath(this.deaths);
+  }
+
+  /** Controlled, harmless random events. They never touch level geometry. */
+  private updateEvents(dt: number) {
+    if (this.passer.on) {
+      this.passer.x += this.passer.dir * 36 * dt;
+      if (this.passer.x < -30 || this.passer.x > VW + 30) this.passer.on = false;
+    }
+    if (this.bgPulse > 0) this.bgPulse -= dt;
+    if (this.player.dead || this.finished) return;
+    this.eventTimer -= dt;
+    if (this.eventTimer > 0) return;
+    this.eventTimer = 16 + Math.random() * 18;
+    const roll = Math.floor(Math.random() * 4);
+    if (roll === 0) {
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      this.passer = { on: true, dir, x: dir > 0 ? -20 : VW + 20, y: 34 + Math.random() * 50 };
+    } else if (roll === 1) {
+      this.particles.push({
+        x: this.cam.x + 40 + Math.random() * (VW - 80),
+        y: this.cam.y - 6,
+        vx: 0,
+        vy: 30,
+        life: 1.4,
+        max: 1.4,
+        color: "#8a8fb0",
+        size: 3,
+      });
+    } else if (roll === 2) {
+      this.bgPulse = 2.5;
+    } else if (!this.message) {
+      this.flash(EVENT_LINES[Math.floor(Math.random() * EVENT_LINES.length)]!);
+    }
   }
 
   // --------------------------------------------------------------- particles
@@ -878,8 +1099,15 @@ export class GameEngine {
     ctx.clip();
 
     const hc = this.settings.highContrast;
-    ctx.fillStyle = this.tint ?? (hc ? "#000000" : "#0d0f1c");
+    ctx.fillStyle = this.tint ?? (hc ? "#000000" : this.bgPulse > 0 ? "#16122c" : "#0d0f1c");
     ctx.fillRect(0, 0, VW, VH);
+    if (this.passer.on) {
+      // a tiny background robot strolls past — pure decoration
+      const bob = Math.abs(Math.sin(this.clock * 10)) * 2;
+      ctx.fillStyle = "rgba(124,249,200,0.25)";
+      ctx.fillRect(this.passer.x, this.passer.y - bob, 7, 7);
+      ctx.fillRect(this.passer.x + 3, this.passer.y - bob - 3, 1, 3);
+    }
 
     const sh = this.cam.shake;
     const sx = sh ? (Math.random() - 0.5) * sh : 0;
@@ -898,6 +1126,7 @@ export class GameEngine {
 
     this.drawGrid(ctx);
     this.drawEntities(ctx, hc);
+    this.drawHint(ctx);
     this.drawPlayer(ctx, hc);
     this.drawParticles(ctx);
     ctx.restore();
@@ -983,7 +1212,12 @@ export class GameEngine {
           break;
         }
         case "spike":
-          spikes(ctx, e, hc ? "#ffffff" : "#ff5d8f");
+          if (e.period && !e.dead) {
+            // retracted pulse spike — low and dim, a learnable rhythm
+            ctx.globalAlpha = 0.35;
+            spikes(ctx, { x: e.x, y: e.y + e.h * 0.6, w: e.w, h: e.h * 0.4 }, hc ? "#ffffff" : "#ff5d8f");
+            ctx.globalAlpha = 1;
+          } else spikes(ctx, e, hc ? "#ffffff" : "#ff5d8f");
           break;
         case "crusher":
           block(ctx, e.x, e.y, e.w, e.h, hc ? "#ffffff" : "#ff7b4d");
@@ -991,7 +1225,14 @@ export class GameEngine {
           for (let i = 0; i < e.w; i += 12) ctx.fillRect(e.x + i + 3, e.y + e.h - 5, 6, 3);
           break;
         case "chaser": {
-          ctx.fillStyle = hc ? "#ffffff" : "#ff5d8f";
+          if (!e.armed && e.label) {
+            ctx.font = "7px monospace";
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#7cf9c8";
+            ctx.fillText(e.label, e.x + e.w / 2, e.y - 6);
+            ctx.textAlign = "left";
+          }
+          ctx.fillStyle = hc ? "#ffffff" : e.armed ? "#ff5d8f" : "#7cf9c8";
           ctx.beginPath();
           ctx.arc(e.x + e.w / 2, e.y + e.h / 2, e.w / 2, 0, Math.PI * 2);
           ctx.fill();
@@ -1012,9 +1253,10 @@ export class GameEngine {
         case "coin": {
           if (e.collected) break;
           const bob = Math.sin(e.phase * 3) * 2;
+          const spin = Math.max(0.2, Math.abs(Math.cos(e.phase * 2.6)));
           ctx.fillStyle = "#ffd166";
           ctx.beginPath();
-          ctx.arc(e.x + e.w / 2, e.y + e.h / 2 + bob, e.w / 2, 0, Math.PI * 2);
+          ctx.ellipse(e.x + e.w / 2, e.y + e.h / 2 + bob, (e.w / 2) * spin, e.h / 2, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = "rgba(0,0,0,0.25)";
           ctx.fillRect(e.x + e.w / 2 - 1, e.y + e.h / 2 - 3 + bob, 2, 6);
@@ -1027,7 +1269,101 @@ export class GameEngine {
           ctx.fillRect(e.x, e.y, e.w, e.h);
           break;
         }
-        case "checkpoint": {
+        case "conveyor": {
+          block(ctx, e.x, e.y, e.w, e.h, hc ? "#ffffff" : "#5ad1ff");
+          const dir = Math.sign(e.dx ?? 1);
+          const off = (((e.phase * (e.speed ?? 70) * dir) % 16) + 16) % 16;
+          ctx.fillStyle = "rgba(13,15,28,0.55)";
+          for (let i = off; i < e.w - 6; i += 16) {
+            const x = e.x + i;
+            ctx.beginPath();
+            ctx.moveTo(x + (dir > 0 ? 0 : 6), e.y + 3);
+            ctx.lineTo(x + (dir > 0 ? 6 : 0), e.y + 6);
+            ctx.lineTo(x + (dir > 0 ? 0 : 6), e.y + 9);
+            ctx.fill();
+          }
+          break;
+        }
+        case "ice":
+          block(ctx, e.x, e.y, e.w, e.h, hc ? "#ffffff" : "#c9f1ff");
+          ctx.fillStyle = "rgba(255,255,255,0.6)";
+          for (let i = 8; i < e.w - 8; i += 26) ctx.fillRect(e.x + i, e.y + 4, 10, 1);
+          break;
+        case "bounce":
+          block(ctx, e.x, e.y, e.w, e.h, hc ? "#ffffff" : "#ff9de2");
+          ctx.fillStyle = "rgba(13,15,28,0.5)";
+          ctx.fillRect(e.x + 4, e.y + 3, e.w - 8, 2);
+          break;
+        case "breakable":
+          block(ctx, e.x, e.y, e.w, e.h, hc ? "#bbbbbb" : "#d9a066");
+          ctx.strokeStyle = "rgba(13,15,28,0.55)";
+          ctx.beginPath();
+          for (let i = 10; i < e.w; i += 20) {
+            ctx.moveTo(e.x + i, e.y + 2);
+            ctx.lineTo(e.x + i + 5, e.y + e.h / 2);
+            ctx.lineTo(e.x + i - 2, e.y + e.h - 2);
+          }
+          ctx.stroke();
+          break;
+        case "runner":
+        case "follower":
+          block(ctx, e.x, e.y, e.w, e.h, hc ? "#ffffff" : "#f6a6ff");
+          ctx.fillStyle = "#0d0f1c";
+          ctx.fillRect(e.x + e.w / 2 - 6, e.y + 4, 3, 3);
+          ctx.fillRect(e.x + e.w / 2 + 3, e.y + 4, 3, 3);
+          break;
+        case "orbit":
+          ctx.strokeStyle = "rgba(90,209,255,0.12)";
+          ctx.beginPath();
+          ctx.arc(e.ox + e.w / 2, e.oy + e.h / 2, e.radius ?? 40, 0, Math.PI * 2);
+          ctx.stroke();
+          block(ctx, e.x, e.y, e.w, e.h, hc ? "#ffffff" : "#5ad1ff");
+          break;
+        case "temp": {
+          const per = e.period ?? 3;
+          const t = ((((e.phase + (e.offset ?? 0)) % per) + per) % per) / per;
+          const alpha = e.soft ? 0.16 : t > 0.45 ? 0.45 + 0.55 * Math.abs(Math.sin(e.phase * 22)) : 1;
+          block(ctx, e.x, e.y, e.w, e.h, hc ? "#ffffff" : "#9dffb0", alpha);
+          break;
+        }
+        case "sign": {
+          const text = e.label ?? "";
+          ctx.font = "8px monospace";
+          ctx.textAlign = "center";
+          if (text.length <= 2) {
+            ctx.fillStyle = "rgba(255,209,102,0.55)";
+            ctx.fillText(text, e.x, e.y);
+          } else {
+            const w = ctx.measureText(text).width + 10;
+            ctx.fillStyle = "rgba(255,255,255,0.18)";
+            ctx.fillRect(e.x - 1, e.y + 4, 2, 22);
+            ctx.fillStyle = "#1b1e33";
+            ctx.fillRect(e.x - w / 2, e.y - 10, w, 14);
+            ctx.strokeStyle = "#ffd166";
+            ctx.strokeRect(e.x - w / 2 + 0.5, e.y - 9.5, w - 1, 13);
+            ctx.fillStyle = "#ffd166";
+            ctx.fillText(text, e.x, e.y);
+          }
+          ctx.textAlign = "left";
+          break;
+        }
+        case "button": {
+          ctx.fillStyle = "#3a3f5c";
+          ctx.fillRect(e.x - 2, e.y + e.h - 4, e.w + 4, 4);
+          ctx.fillStyle = hc ? "#ffffff" : "#ff5d8f";
+          const h = e.touched ? 3 : e.h - 4;
+          ctx.fillRect(e.x, e.y + e.h - 4 - h, e.w, h);
+          if (e.label) {
+            ctx.font = "7px monospace";
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#ff9dbb";
+            ctx.fillText(e.label, e.x + e.w / 2, e.y - 6);
+            ctx.textAlign = "left";
+          }
+          break;
+        }
+        case "checkpoint":
+        case "fakecheckpoint": {
           ctx.fillStyle = e.collected ? "#7cf9c8" : "rgba(124,249,200,0.35)";
           ctx.fillRect(e.x + e.w / 2 - 1.5, e.y, 3, e.h);
           ctx.fillRect(e.x + e.w / 2, e.y, 12, 8);
@@ -1043,11 +1379,16 @@ export class GameEngine {
           ctx.strokeRect(e.x + 0.5, e.y + 0.5, e.w - 1, e.h - 1);
           ctx.fillStyle = "#07121a";
           ctx.fillRect(e.x + e.w / 2 - 2, e.y + 6, 4, e.h - 12);
+          if (e.type === "goal") {
+            const k = (e.phase * 0.8) % 1;
+            ctx.fillStyle = `rgba(232,255,247,${1 - k})`;
+            ctx.fillRect(e.x + 3 + ((e.phase * 37) % (e.w - 6)), e.y - k * 18, 2, 2);
+          }
           break;
         }
       }
 
-      if (e.ghost && near) {
+      if (e.ghost && near && !e.hidden) {
         // ghost block fades out as you approach — visible tell from a distance
         ctx.fillStyle = this.tint ?? "#0d0f1c";
         ctx.fillRect(e.x - 1, e.y - 1, e.w + 2, e.h + 2);
@@ -1057,10 +1398,29 @@ export class GameEngine {
     }
   }
 
+  private drawHint(ctx: CanvasRenderingContext2D) {
+    const h = this.hintSpot;
+    if (!h) return;
+    const t = 0.18 + 0.14 * Math.sin(this.clock * 4);
+    ctx.strokeStyle = `rgba(255,209,102,${t})`;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, 26, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   private drawPlayer(ctx: CanvasRenderingContext2D, hc: boolean) {
     const p = this.player;
     if (p.dead) return;
     const s = p.scale;
+    // squash & stretch around the feet
+    const ax = p.x + p.w / 2;
+    const ay = p.y + p.h;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.scale(1 + this.squash, 1 - this.squash);
+    ctx.translate(-ax, -ay);
     ctx.fillStyle = hc ? "#ffffff" : "#ffd166";
     ctx.fillRect(Math.round(p.x), Math.round(p.y), p.w, p.h);
     ctx.fillStyle = "#0d0f1c";
@@ -1076,6 +1436,7 @@ export class GameEngine {
     // antenna
     ctx.fillStyle = hc ? "#ffffff" : "#ff5d8f";
     ctx.fillRect(Math.round(p.x + p.w / 2 - 1), Math.round(p.y - 4 * s), 2, 4 * s);
+    ctx.restore();
   }
 
   private drawParticles(ctx: CanvasRenderingContext2D) {
@@ -1136,6 +1497,18 @@ export class GameEngine {
       ctx.strokeStyle = `rgba(255,255,255,${a})`;
       ctx.strokeRect(VW / 2 - 100, VH / 2, 200, 10);
       ctx.fillRect(VW / 2 - 100, VH / 2, w, 10);
+    } else if (this.fx === "didIt") {
+      ctx.fillStyle = `rgba(7,18,26,${0.7 * a})`;
+      ctx.fillRect(0, 0, VW, VH);
+      ctx.textAlign = "center";
+      ctx.fillStyle = `rgba(255,209,102,${a})`;
+      ctx.font = "bold 30px monospace";
+      ctx.fillText("YOU DID IT!", VW / 2, VH / 2 - 6);
+      if (this.fxTimer < 1) {
+        ctx.font = "13px monospace";
+        ctx.fillStyle = `rgba(255,255,255,${a * 0.85})`;
+        ctx.fillText("...not yet. keep going.", VW / 2, VH / 2 + 22);
+      }
     } else if (this.fx === "glitch" && !this.settings.reducedFlash) {
       for (let i = 0; i < 12; i++) {
         ctx.fillStyle = `rgba(${Math.random() > 0.5 ? "124,249,200" : "255,93,143"},${0.12 * a})`;
