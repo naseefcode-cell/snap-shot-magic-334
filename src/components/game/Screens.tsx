@@ -345,7 +345,7 @@ export function EndingScreen({
           inside with a clipboard.
         </p>
         <p>
-          "Thirty levels," they say, "and you fell {save.deaths} times. Statistically, the floor won."
+          "Sixty levels," they say, "and you fell {save.deaths} times. Statistically, the floor won."
         </p>
         <p>
           The robot blinks twice, unscrews the clipboard, and writes one line under the last trap:

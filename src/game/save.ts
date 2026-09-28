@@ -9,6 +9,10 @@ export interface LevelRecord {
   bestDeaths: number | null;
   coins: string[];
   stars: number;
+  /** total deaths ever recorded on this level */
+  deaths?: number;
+  /** optional bonus objective ever completed */
+  bonus?: boolean;
 }
 
 export interface Settings {
@@ -30,6 +34,9 @@ export interface SaveData {
   chaosUnlocked: boolean;
   endingSeen: boolean;
   levelSelectUnlockAll: boolean;
+  endlessBest: number;
+  maxRunDeaths: number;
+  chaosClears: number;
 }
 
 const KEY = "chaos-bolt-save-v1";
@@ -54,6 +61,9 @@ function blank(): SaveData {
     chaosUnlocked: false,
     endingSeen: false,
     levelSelectUnlockAll: false,
+    endlessBest: 0,
+    maxRunDeaths: 0,
+    chaosClears: 0,
   };
 }
 
@@ -108,6 +118,15 @@ export function totalCoins(save: SaveData): number {
 
 export function completedCount(save: SaveData): number {
   return Object.values(save.levels).filter((r) => r.done).length;
+}
+
+export function worldDone(save: SaveData, world: number): boolean {
+  for (let i = world * 10; i < world * 10 + 10; i++) if (!levelRecord(save, i).done) return false;
+  return true;
+}
+
+export function bonusCount(save: SaveData): number {
+  return Object.values(save.levels).filter((r) => r.bonus).length;
 }
 
 export function resetSave(): SaveData {

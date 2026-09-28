@@ -182,7 +182,7 @@ export const SET3: LevelDef[] = [
   // 26 — THE FAKE DEATH
   {
     name: "CLINICALLY DEAD",
-    hint: "trust nothing, least of all the screen",
+    hint: "THIS LEVEL IS DEFINITELY SAFE.",
     w: 840,
     h: 360,
     spawn: { x: 28, y: 320 },

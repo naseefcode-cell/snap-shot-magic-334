@@ -7,6 +7,7 @@ import {
   FREEZE,
   GOAL,
   HIDDEN,
+  MSPIKE,
   S,
   SECRET,
   SPIKE,
@@ -255,8 +256,8 @@ export const SET2: LevelDef[] = [
 
   // 20 — THE WORLD MOVES
   {
-    name: "CONVEYOR SKY",
-    hint: "the camera will not wait",
+    name: "TRAP GAUNTLET",
+    hint: "the camera will not wait. neither will the spikes.",
     w: 1280,
     h: 360,
     spawn: { x: 20, y: 320 },
@@ -275,6 +276,8 @@ export const SET2: LevelDef[] = [
       S(760, 258, 60, 14),
       S(1000, 252, 60, 14),
       CP(640, 320),
+      MSPIKE(880, 308, 24, 30, 0, 40),
+      MSPIKE(1120, 308, 24, 40, 0, 40),
       COIN("l20c1", 324, 226),
       COIN("l20c2", 544, 220),
       COIN("l20c3", 1024, 220),

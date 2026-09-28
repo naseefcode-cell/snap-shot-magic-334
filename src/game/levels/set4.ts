@@ -1,0 +1,321 @@
+import type { LevelDef } from "../types";
+import {
+  BOUNCE,
+  BREAK,
+  COIN,
+  CONV,
+  CP,
+  CRUSH,
+  DECOY,
+  FALLB,
+  FOLLOW,
+  GOAL,
+  HIDDEN,
+  ICE,
+  MOVE,
+  MSPIKE,
+  NPC,
+  ORBIT,
+  RUNNER,
+  S,
+  SECRET,
+  SIGN,
+  SPIKE,
+  T,
+  TEMP,
+  WALL,
+  floor,
+} from "./helpers";
+
+/** Levels 31–40 — WORLD 4: CHAOS FACTORY. Machines that almost help. */
+export const SET4: LevelDef[] = [
+  // 31 — easy: conveyors
+  {
+    name: "CONVEYOR SHIFT",
+    hint: "belts push. push back.",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 12,
+    entities: [
+      ...floor(320, [
+        [0, 120],
+        [560, 80],
+      ]),
+      CONV(120, 320, 160, 1, 60),
+      SPIKE(280, 348, 50),
+      CONV(330, 320, 230, -1, 70),
+      SIGN(70, 290, "MIND THE BELTS"),
+      COIN("l31c1", 190, 290),
+      COIN("l31c2", 300, 250),
+      COIN("l31c3", 450, 290),
+      GOAL(600, 320),
+    ],
+  },
+
+  // 32 — medium: ice
+  {
+    name: "SLIPPERY SLOPE",
+    hint: "pale blue means no brakes",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 16,
+    entities: [
+      ...floor(320, [
+        [0, 100],
+        [560, 80],
+      ]),
+      ICE(100, 320, 180),
+      SPIKE(280, 348, 60),
+      ICE(340, 320, 130),
+      SPIKE(470, 348, 90),
+      S(490, 272, 50, 14),
+      HIDDEN(540, 250, 50, 14),
+      SECRET("s32", 560, 200),
+      COIN("l32c1", 180, 290),
+      COIN("l32c2", 302, 250),
+      COIN("l32c3", 508, 244),
+      GOAL(610, 320),
+    ],
+  },
+
+  // 33 — surprise: bounce pads (the suspicious pad is the safe one)
+  {
+    name: "BOUNCE HOUSE",
+    hint: "pink pads have springs",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 16,
+    entities: [
+      ...floor(320, [[0, 640]]),
+      BOUNCE(200, 308, 50, 820),
+      S(300, 150, 30, 170),
+      SIGN(455, 250, "TRUST THE PAD"),
+      BOUNCE(430, 308, 50, 760),
+      SPIKE(410, 40, 90, 14),
+      SECRET("s33", 130, 110),
+      COIN("l33c1", 240, 120),
+      COIN("l33c2", 455, 150),
+      COIN("l33c3", 560, 290),
+      GOAL(606, 320),
+    ],
+    triggers: [T(200, 290, 50, 20, [{ op: "msg", v: "boing" }])],
+  },
+
+  // 34 — medium: breakable ceilings
+  {
+    name: "BRITTLE BRICKS",
+    hint: "cracked blocks hate headbutts",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 20,
+    entities: [
+      ...floor(320, [[0, 640]]),
+      S(0, 200, 400, 20),
+      BREAK(400, 200, 60, 20),
+      S(460, 200, 60, 20),
+      BREAK(520, 200, 50, 20),
+      S(570, 200, 70, 20),
+      S(405, 264, 40, 14),
+      WALL(460, 220, 24, 100),
+      SECRET("s34", 600, 290),
+      COIN("l34c1", 100, 290),
+      COIN("l34c2", 200, 165),
+      COIN("l34c3", 545, 290),
+      GOAL(610, 200),
+    ],
+  },
+
+  // 35 — hard: follower + runner
+  {
+    name: "TAG, YOU'RE IT",
+    hint: "one platform likes you. one does not.",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 20,
+    entities: [
+      ...floor(320, [
+        [0, 110],
+        [560, 80],
+      ]),
+      SPIKE(110, 348, 450),
+      FOLLOW(120, 280, 60, 100, 80),
+      S(320, 250, 40, 14),
+      RUNNER(400, 270, 60, 50, 80, 40),
+      SIGN(60, 280, "PLATFORMS HAVE FEELINGS"),
+      COIN("l35c1", 170, 240),
+      COIN("l35c2", 336, 215),
+      COIN("l35c3", 536, 240),
+      GOAL(606, 320),
+    ],
+  },
+
+  // 36 — funny/easy: the elevator pitch
+  {
+    name: "THE ELEVATOR PITCH",
+    hint: "going up?",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 18,
+    entities: [
+      ...floor(320, [
+        [0, 200],
+        [440, 200],
+      ]),
+      SPIKE(200, 348, 240),
+      MOVE(215, 240, 60, 14, 0, 60, 50, "lift"),
+      SIGN(150, 262, "LIFT"),
+      S(300, 170, 140, 14),
+      HIDDEN(560, 250, 50, 14),
+      SECRET("s36", 578, 205),
+      COIN("l36c1", 239, 140),
+      COIN("l36c2", 380, 140),
+      COIN("l36c3", 520, 290),
+      GOAL(410, 170),
+    ],
+    triggers: [
+      T(360, 100, 30, 70, [
+        { op: "goalTo", x: 606, y: 280 },
+        { op: "msg", v: "the exit took the stairs" },
+        { op: "shake", v: 4 },
+      ]),
+    ],
+  },
+
+  // 37 — new mechanic: blinking platforms + timed door
+  {
+    name: "BLINK BRIDGE",
+    hint: "green blocks flicker before they leave",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 22,
+    entities: [
+      ...floor(320, [
+        [0, 100],
+        [580, 60],
+      ]),
+      SPIKE(100, 348, 480),
+      TEMP(120, 290, 60, 3, 0),
+      TEMP(220, 270, 60, 3, 2),
+      TEMP(320, 290, 60, 3, 1),
+      TEMP(420, 270, 60, 3, 0),
+      S(500, 290, 60, 14),
+      TEMP(590, 200, 16, 2.4, 0, 120),
+      COIN("l37c1", 150, 250),
+      COIN("l37c2", 350, 250),
+      COIN("l37c3", 450, 230),
+      GOAL(620, 320),
+    ],
+  },
+
+  // 38 — combination: conveyor + falling + bounce + fake exit
+  {
+    name: "FACTORY FLOOR",
+    hint: "the conveyor wants you to hurry",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 22,
+    entities: [
+      ...floor(320, [[0, 100]]),
+      CONV(100, 320, 120, 1, 90),
+      SPIKE(220, 348, 200),
+      FALLB(240, 296, 60, 16),
+      FALLB(330, 276, 60, 16),
+      S(420, 320, 60, 40),
+      BOUNCE(430, 308, 40, 800),
+      S(480, 320, 160, 40),
+      S(520, 170, 120, 14),
+      DECOY(596, 320),
+      SIGN(606, 262, "EXIT"),
+      COIN("l38c1", 160, 290),
+      COIN("l38c2", 356, 240),
+      COIN("l38c3", 450, 130),
+      GOAL(610, 170),
+    ],
+    triggers: [
+      T(592, 280, 28, 40, [{ op: "warp", x: 40, y: 300 }, { op: "msg", v: "that door was a drawing" }], {
+        once: false,
+      }),
+    ],
+  },
+
+  // 39 — hard: orbiting platforms
+  {
+    name: "SPIN CYCLE",
+    hint: "ride the wheel, leave at the top",
+    w: 640,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 26,
+    entities: [
+      ...floor(320, [
+        [0, 100],
+        [560, 80],
+      ]),
+      SPIKE(100, 348, 460),
+      ORBIT(150, 250, 50, 40, 1.4),
+      ORBIT(290, 240, 50, 50, -1.2),
+      ORBIT(430, 250, 50, 40, 1.6),
+      COIN("l39c1", 175, 200),
+      COIN("l39c2", 315, 180),
+      COIN("l39c3", 455, 200),
+      GOAL(606, 320),
+    ],
+  },
+
+  // 40 — SPECIAL: CHAOS MACHINE (multi-stage)
+  {
+    name: "CHAOS MACHINE",
+    hint: "four machines. one robot. no refunds.",
+    w: 1600,
+    h: 360,
+    spawn: { x: 30, y: 320 },
+    par: 60,
+    entities: [
+      // stage 1: belt + crusher
+      ...floor(320, [
+        [0, 120],
+        [320, 520],
+        [1200, 400],
+      ]),
+      CONV(120, 320, 200, 1, 80),
+      CRUSH(190, 40, 50, 26, 0, 250, "c1", 260),
+      // stage 2: bounce over the wall (the ceiling is cardboard)
+      BOUNCE(600, 308, 40, 820),
+      BREAK(596, 150, 50, 16),
+      S(700, 150, 24, 170),
+      CP(780, 320),
+      // stage 3: wheel, blink, runner
+      SPIKE(840, 348, 360),
+      ORBIT(870, 260, 50, 35, 1.3),
+      TEMP(990, 280, 60, 2.6, 0),
+      RUNNER(1080, 270, 60, 40, 80, 40),
+      CP(1230, 320),
+      // stage 4: the friendly bot
+      NPC(1280, 320, "bot", "hi friend!", 75),
+      MSPIKE(1400, 308, 30, 40, 0, 40),
+      HIDDEN(1520, 250, 50, 14),
+      SECRET("s40", 1536, 205),
+      COIN("l40c1", 210, 290),
+      COIN("l40c2", 640, 100),
+      COIN("l40c3", 1110, 230),
+      GOAL(1570, 320),
+    ],
+    triggers: [
+      T(150, 250, 16, 80, [{ op: "arm", ids: ["c1"] }], { tell: true }),
+      T(1330, 200, 20, 130, [
+        { op: "arm", ids: ["bot"] },
+        { op: "msg", v: "HE WAS NEVER YOUR FRIEND" },
+      ]),
+      T(1470, 200, 20, 130, [{ op: "freeze", v: true }, { op: "fx", v: "didIt" }]),
+      T(1500, 200, 20, 130, [{ op: "freeze", v: false }]),
+    ],
+  },
+];
