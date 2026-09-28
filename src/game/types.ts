@@ -19,7 +19,18 @@ export type EntityType =
   | "secret"
   | "checkpoint"
   | "goal"
-  | "fakegoal";
+  | "fakegoal"
+  | "conveyor"
+  | "ice"
+  | "bounce"
+  | "breakable"
+  | "runner"
+  | "follower"
+  | "orbit"
+  | "temp"
+  | "sign"
+  | "button"
+  | "fakecheckpoint";
 
 export interface EntityDef {
   id?: string | undefined;
@@ -48,6 +59,10 @@ export interface EntityDef {
   armed?: boolean;
   /** label drawn on the entity (goals, decoys) */
   label?: string;
+  /** cycle length (s) for temp platforms / pulsing spikes */
+  period?: number;
+  /** cycle offset (s) or orbit start angle */
+  offset?: number;
 }
 
 export type Op =
@@ -62,14 +77,16 @@ export type Op =
   | { op: "speed"; v: number }
   | { op: "goalTo"; x: number; y: number }
   | { op: "goalRoam"; v: boolean }
-  | { op: "fx"; v: "fakeDeath" | "fakeVictory" | "fakeLoading" | "glitch" }
+  | { op: "fx"; v: "fakeDeath" | "fakeVictory" | "fakeLoading" | "glitch" | "didIt" }
   | { op: "dark"; v: number }
   | { op: "mirror" }
   | { op: "warp"; x: number; y: number }
   | { op: "zoom"; v: number }
   | { op: "tint"; v: string }
   | { op: "msg"; v: string }
-  | { op: "freeze"; v: boolean };
+  | { op: "freeze"; v: boolean }
+  | { op: "shift"; ids: string[]; dx: number; dy: number }
+  | { op: "confetti" };
 
 export interface Trigger {
   /** trigger zone in world space */
@@ -82,6 +99,18 @@ export interface Trigger {
   once?: boolean;
   /** draw a faint tell so the trap is learnable */
   tell?: boolean;
+  /** only fires while the player is jumping upward */
+  when?: "jump";
+  /** only active once the player has died at least this often this attempt */
+  minDeaths?: number;
+  /** only active while deaths this attempt are at most this */
+  maxDeaths?: number;
+}
+
+export interface Bonus {
+  text: string;
+  kind: "nojump" | "avoid" | "secret";
+  id?: string;
 }
 
 export interface LevelDef {
@@ -104,6 +133,8 @@ export interface LevelDef {
   scroll?: number;
   tint?: string;
   flipped?: boolean;
+  /** optional per-level objective */
+  bonus?: Bonus;
 }
 
 export interface ChaosModifiers {
@@ -113,6 +144,8 @@ export interface ChaosModifiers {
   ghost?: boolean;
   mirror?: boolean;
   roamGoal?: boolean;
+  scale?: number;
+  hazard?: number;
   label: string;
 }
 
@@ -134,4 +167,7 @@ export interface LevelResult {
   coinTotal: number;
   stars: number;
   secrets: string[];
+  par: number;
+  bonus: boolean | null;
+  bonusText: string | null;
 }
