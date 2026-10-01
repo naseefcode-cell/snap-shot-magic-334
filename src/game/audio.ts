@@ -13,7 +13,11 @@ export type Sfx =
   | "click"
   | "trap"
   | "achievement"
-  | "secret";
+  | "secret"
+  | "shoot"
+  | "hit"
+  | "warn"
+  | "laser";
 
 export class AudioManager {
   private ctx: AudioContext | null = null;
@@ -134,6 +138,20 @@ export class AudioManager {
         [784, 988, 1318].forEach((f, i) =>
           window.setTimeout(() => this.blip(f, 0.2, "triangle", 0.15), i * 110),
         );
+        break;
+      case "shoot":
+        this.blip(900, 0.06, "square", 0.08, 420);
+        break;
+      case "hit":
+        this.blip(240, 0.1, "square", 0.16, 80);
+        this.noise(0.08, 0.1);
+        break;
+      case "warn":
+        this.blip(1200, 0.06, "square", 0.08);
+        window.setTimeout(() => this.blip(1200, 0.06, "square", 0.08), 120);
+        break;
+      case "laser":
+        this.blip(1500, 0.18, "sawtooth", 0.08, 300);
         break;
       case "secret":
         [1046, 1318, 1568, 2093].forEach((f, i) =>

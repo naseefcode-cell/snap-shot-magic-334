@@ -30,7 +30,14 @@ export type EntityType =
   | "temp"
   | "sign"
   | "button"
-  | "fakecheckpoint";
+  | "fakecheckpoint"
+  | "enemy"
+  | "laser"
+  | "boulder"
+  | "dashwall"
+  | "chest"
+  | "powerup"
+  | "target";
 
 export interface EntityDef {
   id?: string | undefined;
@@ -63,6 +70,14 @@ export interface EntityDef {
   period?: number;
   /** cycle offset (s) or orbit start angle */
   offset?: number;
+  /** enemy kind: crawler | hopper | sentry | core */
+  kind?: string;
+  /** hit points for enemies / targets */
+  hp?: number;
+  /** ops fired when this entity is activated (button, chest, power-up, target shot) */
+  ops?: Op[];
+  /** visual clue that this chest / power-up is a troll */
+  trap?: boolean;
 }
 
 export type Op =
@@ -86,7 +101,10 @@ export type Op =
   | { op: "msg"; v: string }
   | { op: "freeze"; v: boolean }
   | { op: "shift"; ids: string[]; dx: number; dy: number }
-  | { op: "confetti" };
+  | { op: "confetti" }
+  | { op: "shield" }
+  | { op: "boom" }
+  | { op: "later"; t: number; ops: Op[] };
 
 export interface Trigger {
   /** trigger zone in world space */
@@ -170,4 +188,5 @@ export interface LevelResult {
   par: number;
   bonus: boolean | null;
   bonusText: string | null;
+  enemies: number;
 }
