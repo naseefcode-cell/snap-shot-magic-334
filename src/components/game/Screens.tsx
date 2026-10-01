@@ -378,7 +378,7 @@ export function Hud({
 }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-3">
-      <div className="font-pixel text-[9px] leading-relaxed text-primary sm:text-[11px]">
+      <div className="rounded-sm bg-background/80 px-2 py-1 font-pixel text-[9px] leading-relaxed text-primary sm:text-[11px]">
         <p>
           LEVEL {String(hud.level + 1).padStart(2, "0")} · {hud.name}
         </p>
