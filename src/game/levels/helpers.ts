@@ -306,3 +306,56 @@ export const NPC = (x: number, y: number, id: string, label: string, speed = 70)
 
 /** a column of ▼ marks hinting at an invisible platform below */
 export const MARK = (x: number, y = 70): EntityDef => SIGN(x, y, "▼");
+
+// ---- Chaos Bolt combat & trap pieces -----------------------------------
+
+/** walking enemy patrolling [x, x + range] on a floor whose top is `fy` */
+export const CRAWL = (x: number, fy: number, range = 80, id?: string, speed = 46, hidden = false): EntityDef => ({
+  type: "enemy", kind: "crawler", x, y: fy - 14, w: 18, h: 14, dx: range, speed, id, hidden,
+});
+
+/** bouncy enemy hopping along [x, x + range] */
+export const HOP = (x: number, fy: number, range = 80, id?: string, speed = 60, hidden = false): EntityDef => ({
+  type: "enemy", kind: "hopper", x, y: fy - 16, w: 16, h: 16, dx: range, speed, id, hidden,
+});
+
+/** stationary turret: glows while charging, then fires a slow shot */
+export const SENTRY = (x: number, fy: number, period = 2.4, id?: string, hidden = false): EntityDef => ({
+  type: "enemy", kind: "sentry", x, y: fy - 22, w: 18, h: 22, period, id, hidden,
+});
+
+/** laser beam: thin line (idle) → flicker (charge) → solid beam (fire) */
+export const LASER = (x: number, y: number, w: number, h: number, period = 3, offset = 0): EntityDef => ({
+  type: "laser", x, y, w, h, period, offset,
+});
+
+/** vertical laser from a ceiling emitter down to a floor at `fy` */
+export const VLASER = (x: number, fy: number, top = 40, period = 3, offset = 0): EntityDef =>
+  LASER(x, top, 6, fy - top, period, offset);
+
+/** boulder resting at x, rolls in `dir` once armed */
+export const BOULDER = (x: number, fy: number, id: string, dir = -1, speed = 150, size = 30): EntityDef => ({
+  type: "boulder", x, y: fy - size, w: size, h: size, dx: dir, speed, id, armed: false,
+});
+
+/** wall that warns for 0.8s then dashes by dx */
+export const DASH = (x: number, y: number, w: number, h: number, id: string, dx: number, speed = 320): EntityDef => ({
+  type: "dashwall", x, y, w, h, dx, id, speed, armed: false,
+});
+
+export const CHEST = (x: number, fy: number, ops: Op[], trap = false): EntityDef => ({
+  type: "chest", x, y: fy - 16, w: 20, h: 16, ops, trap,
+});
+
+export const POWER = (x: number, y: number, ops: Op[] = [{ op: "shield" }], trap = false): EntityDef => ({
+  type: "powerup", x, y, w: 12, h: 12, ops, trap,
+});
+
+/** shoot it with a Chaos Bolt to fire its ops */
+export const TARGET = (x: number, y: number, ops: Op[], hp = 1): EntityDef => ({
+  type: "target", x, y, w: 14, h: 14, ops, hp,
+});
+
+export const BOOMBTN = (x: number, fy: number, ops: Op[], label?: string): EntityDef => ({
+  type: "button", x, y: fy - 12, w: 18, h: 12, ops, label,
+});

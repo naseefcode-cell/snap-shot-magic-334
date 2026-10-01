@@ -34,12 +34,13 @@ export interface SaveData {
   chaosUnlocked: boolean;
   endingSeen: boolean;
   levelSelectUnlockAll: boolean;
-  endlessBest: number;
+  enemies: number;
   maxRunDeaths: number;
   chaosClears: number;
 }
 
-const KEY = "chaos-bolt-save-v1";
+const KEY = "chaos-bolt-save-v2";
+const OLD_KEY = "chaos-bolt-save-v1";
 
 export const defaultSettings: Settings = {
   music: true,
@@ -61,7 +62,7 @@ function blank(): SaveData {
     chaosUnlocked: false,
     endingSeen: false,
     levelSelectUnlockAll: false,
-    endlessBest: 0,
+    enemies: 0,
     maxRunDeaths: 0,
     chaosClears: 0,
   };
@@ -71,7 +72,13 @@ export function loadSave(): SaveData {
   if (typeof window === "undefined") return blank();
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) return blank();
+    if (!raw) {
+      // the campaign was rebuilt: keep only settings from the old save
+      const old = window.localStorage.getItem(OLD_KEY);
+      const b = blank();
+      if (old) b.settings = { ...b.settings, ...((JSON.parse(old) as Partial<SaveData>).settings ?? {}) };
+      return b;
+    }
     const parsed = JSON.parse(raw) as Partial<SaveData>;
     const base = blank();
     return {
@@ -121,7 +128,7 @@ export function completedCount(save: SaveData): number {
 }
 
 export function worldDone(save: SaveData, world: number): boolean {
-  for (let i = world * 10; i < world * 10 + 10; i++) if (!levelRecord(save, i).done) return false;
+  for (let i = world * 5; i < world * 5 + 5; i++) if (!levelRecord(save, i).done) return false;
   return true;
 }
 

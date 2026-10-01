@@ -1,25 +1,20 @@
 import type { ChaosModifiers, LevelDef } from "../types";
-import { SET1 } from "./set1";
-import { SET2 } from "./set2";
-import { SET3 } from "./set3";
-import { SET4 } from "./set4";
-import { SET5 } from "./set5";
-import { SET6 } from "./set6";
+import { CAMPAIGN } from "./campaign";
 
-export const LEVELS: LevelDef[] = [...SET1, ...SET2, ...SET3, ...SET4, ...SET5, ...SET6];
+export const LEVELS: LevelDef[] = CAMPAIGN;
 
 export const TOTAL_LEVELS = LEVELS.length;
 
 export const WORLDS = [
-  { name: "LEARNING THE LIES", tag: "W1" },
-  { name: "TRAP CITY", tag: "W2" },
-  { name: "THE WORLD IS BROKEN", tag: "W3" },
-  { name: "CHAOS FACTORY", tag: "W4" },
-  { name: "MIND GAMES", tag: "W5" },
-  { name: "THE FINAL CHAOS", tag: "W6" },
+  { name: "LEARN THE CHAOS", tag: "1-5" },
+  { name: "THE TROLLING BEGINS", tag: "6-10" },
+  { name: "CHAOS BUILDS", tag: "11-15" },
+  { name: "SERIOUS TROLLING", tag: "16-20" },
+  { name: "CONTROLLED CHAOS", tag: "21-25" },
+  { name: "THE FINAL GAUNTLET", tag: "26-30" },
 ] as const;
 
-export const worldOf = (index: number) => Math.floor(index / 10);
+export const worldOf = (index: number) => Math.floor(index / 5);
 
 export const TOTAL_COINS = LEVELS.reduce(
   (n, l) => n + l.entities.filter((e) => e.type === "coin").length,

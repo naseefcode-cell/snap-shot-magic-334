@@ -2,7 +2,7 @@
  * InputManager — keyboard, touch buttons and gamepad in one place.
  */
 
-export type Action = "left" | "right" | "jump" | "restart" | "pause";
+export type Action = "left" | "right" | "jump" | "shoot" | "restart" | "pause";
 
 export class InputManager {
   private keys = new Set<string>();
@@ -11,13 +11,15 @@ export class InputManager {
   private prevPadJump = false;
   jumpPressed = false;
   jumpHeld = false;
+  shootPressed = false;
+  private prevShoot = false;
   onRestart: (() => void) | null = null;
   onPause: (() => void) | null = null;
   onAnyKey: (() => void) | null = null;
 
   private handleDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
-    if (["arrowleft", "arrowright", "arrowup", " ", "w", "a", "d"].includes(k)) e.preventDefault();
+    if (["arrowleft", "arrowright", "arrowup", " ", "w", "a", "d", "j", "x", "f", "k"].includes(k)) e.preventDefault();
     this.keys.add(k);
     this.onAnyKey?.();
     if (k === "r") this.onRestart?.();
@@ -51,7 +53,7 @@ export class InputManager {
     else this.touch.delete(action);
   }
 
-  private padAxis(): { x: number; jump: boolean; restart: boolean } {
+  private padAxis(): { x: number; jump: boolean; restart: boolean; shoot?: boolean } {
     if (typeof navigator === "undefined" || !navigator.getGamepads) {
       return { x: 0, jump: false, restart: false };
     }
@@ -62,8 +64,9 @@ export class InputManager {
       const dpadR = pad.buttons[15]?.pressed ?? false;
       const x = dpadL ? -1 : dpadR ? 1 : Math.abs(ax) > 0.25 ? ax : 0;
       const jump = (pad.buttons[0]?.pressed ?? false) || (pad.buttons[12]?.pressed ?? false);
-      const restart = pad.buttons[2]?.pressed ?? false;
-      if (x !== 0 || jump || restart) return { x, jump, restart };
+      const restart = pad.buttons[3]?.pressed ?? false;
+      const shoot = (pad.buttons[2]?.pressed ?? false) || (pad.buttons[1]?.pressed ?? false) || (pad.buttons[7]?.pressed ?? false);
+      if (x !== 0 || jump || restart || shoot) return { x, jump, restart, shoot };
     }
     return { x: 0, jump: false, restart: false };
   }
@@ -86,6 +89,11 @@ export class InputManager {
     this.jumpPressed = jump && !this.prevJump;
     this.jumpHeld = jump;
     this.prevJump = jump;
+    const shoot =
+      this.keys.has("j") || this.keys.has("x") || this.keys.has("f") || this.keys.has("k") ||
+      this.touch.has("shoot") || Boolean(pad.shoot);
+    this.shootPressed = shoot && !this.prevShoot;
+    this.prevShoot = shoot;
 
     if (pad.restart && !this.prevPadJump) this.onRestart?.();
     this.prevPadJump = pad.restart;

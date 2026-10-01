@@ -166,6 +166,8 @@ export default function GameShell() {
           mutate((s) => {
             const rec = levelRecord(s, index);
             const coins = Array.from(new Set([...rec.coins, ...coinRef.current]));
+            s.enemies += r.enemies;
+            s.maxRunDeaths = Math.max(s.maxRunDeaths, r.deaths);
             if (!isChaos) {
               s.levels[index] = {
                 done: true,
@@ -323,7 +325,7 @@ export default function GameShell() {
             )}
           </div>
           <p className="mt-3 hidden text-center text-[11px] text-muted-foreground lg:block">
-            A / D move · SPACE jump · R restart · ESC pause · gamepads supported
+            A / D move · SPACE jump · J shoot · R restart · ESC pause · gamepads supported
           </p>
         </div>
       ) : (

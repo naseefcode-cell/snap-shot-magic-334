@@ -54,7 +54,24 @@ const EVENT_LINES = [
 function cycleOn(phase: number, period: number, offset: number, frac: number): boolean {
   return (((phase + offset) % period) + period) % period < period * frac;
 }
-const HAZARD_TYPES = new Set(["spike", "crusher", "chaser"]);
+const HAZARD_TYPES = new Set(["spike", "crusher", "chaser", "enemy", "laser", "boulder", "dashwall"]);
+
+interface Bolt {
+  on: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  enemy: boolean;
+}
+
+/** laser cycle: 0–.35 idle · .35–.6 charge · .6–.85 fire · cooldown */
+function laserState(e: { phase: number; period?: number; offset?: number }): 0 | 1 | 2 {
+  const per = e.period ?? 3;
+  const t = ((((e.phase + (e.offset ?? 0)) % per) + per) % per) / per;
+  return t >= 0.6 && t < 0.85 ? 2 : t >= 0.35 && t < 0.6 ? 1 : 0;
+}
 
 interface Ent extends EntityDef {
   ox: number;
@@ -72,6 +89,8 @@ interface Ent extends EntityDef {
   soft: boolean; // temporarily non-solid (fake wall dissolved)
   dead: boolean; // hazard active
   cooldown: number;
+  dir: number;
+  hp: number;
 }
 
 interface Particle {
@@ -168,6 +187,12 @@ export class GameEngine {
   private breakHit: Ent | null = null;
   private bounceV = 0;
   private clock = 0;
+  private bolts: Bolt[] = Array.from({ length: 28 }, () => ({ on: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, enemy: false }));
+  private shootCd = 0;
+  private shield = false;
+  private invuln = 0;
+  private kills = 0;
+  private later: { t: number; ops: Op[] }[] = [];
 
   constructor(canvas: HTMLCanvasElement, input: InputManager, hooks: EngineHooks, settings: Settings) {
     this.canvas = canvas;
@@ -192,6 +217,7 @@ export class GameEngine {
     this.spawn = { ...def.spawn };
     this.finished = false;
     this.deathSpots = [];
+    this.kills = 0;
     this.hintSpot = null;
     this.eventTimer = 12 + Math.random() * 10;
     this.reset(true);
@@ -202,6 +228,11 @@ export class GameEngine {
     this.ents = def.entities.map((e) => this.spawnEnt(e));
     this.triggers = (def.triggers ?? []).map((t) => ({ ...t, fired: false }));
     this.particles.length = 0;
+    for (const b of this.bolts) b.on = false;
+    this.later.length = 0;
+    this.shield = false;
+    this.invuln = 0;
+    this.shootCd = 0;
 
     this.gravityMul = (def.gravity ?? 1) * (this.chaos?.gravity ?? 1);
     this.reverse = Boolean(def.reverse) !== Boolean(this.chaos?.reverse);
@@ -275,6 +306,8 @@ export class GameEngine {
       soft: false,
       dead: HAZARD_TYPES.has(d.type) && !d.hidden && (d.type !== "chaser" || Boolean(d.armed)),
       cooldown: 0,
+      dir: (d.dx ?? 1) < 0 && d.type !== "enemy" ? -1 : 1,
+      hp: d.hp ?? (d.kind === "sentry" ? 2 : d.kind === "core" ? 14 : 1),
     };
   }
 
@@ -349,6 +382,9 @@ export class GameEngine {
     }
 
     if (!this.frozen) this.updateEntities(dt);
+    this.updateLater(dt);
+    this.updateBolts(dt);
+    if (this.invuln > 0) this.invuln -= dt;
     if (!this.finished) {
       this.updatePlayer(dt);
       this.checkTriggers();
@@ -376,6 +412,17 @@ export class GameEngine {
       const f = (p.onGround ? (onIce ? 160 : FRICTION) : AIR_FRICTION) * dt;
       if (Math.abs(p.vx) <= f) p.vx = 0;
       else p.vx -= Math.sign(p.vx) * f;
+    }
+
+    // Chaos Bolt shot
+    this.shootCd -= dt;
+    if (this.input.shootPressed) {
+      this.input.shootPressed = false;
+      if (this.shootCd <= 0) {
+        this.shootCd = 0.26;
+        this.fireBolt(p.x + p.w / 2 + p.face * p.w * 0.5, p.y + p.h * 0.45, p.face * 440, 0, false);
+        audio.play("shoot");
+      }
     }
 
     // jump buffering + coyote time
@@ -467,8 +514,8 @@ export class GameEngine {
 
     // bounds
     p.x = Math.max(0, Math.min(p.x, this.def.w - p.w));
-    if (p.y > this.def.h + 90 || p.y < -260) this.kill();
-    if (this.scroll > 0 && p.x + p.w < this.cam.x - 26) this.kill();
+    if (p.y > this.def.h + 90 || p.y < -260) this.kill(false);
+    if (this.scroll > 0 && p.x + p.w < this.cam.x - 26) this.kill(false);
   }
 
   private landOn(e: Ent) {
@@ -484,8 +531,9 @@ export class GameEngine {
     if (!e.touched) {
       e.touched = true;
       if (e.type === "vanish" || e.type === "fall") {
-        e.timer = e.delay ?? (e.type === "fall" ? 0.22 : 0.4);
-        audio.play("trap");
+        e.timer = e.delay ?? (e.type === "fall" ? (e.kind === "crack" ? 0.55 : 0.22) : 0.4);
+        audio.play(e.kind === "crack" ? "warn" : "trap");
+        if (e.kind === "crack") this.flash("*crack*");
       }
     }
   }
@@ -627,6 +675,70 @@ export class GameEngine {
           }
           break;
         }
+        case "enemy": {
+          if (e.hidden) break;
+          const k = e.kind ?? "crawler";
+          if (k === "crawler" || k === "hopper") {
+            const sp = (e.speed ?? (k === "hopper" ? 60 : 46)) * this.hazardMul * dt;
+            const range = Math.abs(e.dx ?? 80);
+            e.x += e.dir * sp;
+            if (e.x > e.ox + range) e.dir = -1;
+            if (e.x < e.ox) e.dir = 1;
+            if (k === "hopper") e.y = e.oy - Math.abs(Math.sin(e.phase * 3.4)) * 38;
+          } else {
+            // sentry / core: charge up, then fire at the player
+            const per = (e.period ?? (k === "core" ? 1.6 : 2.4)) / this.hazardMul;
+            e.timer += dt;
+            if (k === "core") e.y = e.oy + Math.sin(e.phase * 1.3) * 40;
+            const cx = e.x + e.w / 2;
+            const cy = e.y + e.h * 0.4;
+            if (e.timer >= per) {
+              e.timer = 0;
+              if (Math.abs(pcx - cx) < 400 && Math.abs(pcy - cy) < 160) {
+                const ang = Math.atan2(pcy - cy, pcx - cx);
+                if (k === "core") {
+                  for (const da of [-0.22, 0, 0.22]) this.fireBolt(cx, cy, Math.cos(ang + da) * 170, Math.sin(ang + da) * 170, true);
+                } else {
+                  this.fireBolt(cx, cy, Math.sign(pcx - cx) * 165, 0, true);
+                }
+                audio.play("laser");
+              }
+            }
+          }
+          break;
+        }
+        case "laser": {
+          const st = laserState(e);
+          if (st !== e.cooldown && Math.abs(pcx - e.x) < VW * 0.6) {
+            if (st === 1) audio.play("warn");
+            if (st === 2) {
+              audio.play("laser");
+              this.shake(1.5);
+            }
+          }
+          e.cooldown = st;
+          break;
+        }
+        case "boulder": {
+          if (e.armed) {
+            e.x += e.dir * (e.speed ?? 150) * this.hazardMul * dt;
+            if (Math.random() < 0.3) this.burst(e.x + e.w / 2 - e.dir * e.w * 0.4, e.y + e.h, 1, "#9a8f7a");
+            if (e.x < -80 || e.x > this.def.w + 80) e.removed = true;
+          }
+          break;
+        }
+        case "dashwall": {
+          if (e.armed) {
+            e.timer += dt;
+            if (e.timer > 0.8) {
+              const tx = e.ox + (e.dx ?? 0);
+              const sp = (e.speed ?? 300) * this.hazardMul * dt;
+              e.x += Math.sign(tx - e.x) * Math.min(sp, Math.abs(tx - e.x));
+              if (Math.abs(tx - e.x) < 0.5) e.armed = false;
+            }
+          }
+          break;
+        }
         case "goal":
         case "fakegoal": {
           if (this.goalRoam && e.type === "goal") {
@@ -640,11 +752,106 @@ export class GameEngine {
       }
 
       if (e.cooldown > 0) e.cooldown -= dt;
-      if (HAZARD_TYPES.has(e.type)) {
+      if (e.type === "enemy") {
+        e.dead = !e.hidden;
+      } else if (e.type === "laser") {
+        e.dead = !e.hidden && laserState(e) === 2;
+      } else if (e.type === "boulder") {
+        e.dead = !e.hidden && Boolean(e.armed);
+      } else if (e.type === "dashwall") {
+        e.dead = !e.hidden && Boolean(e.armed) && e.timer > 0.8;
+      } else if (HAZARD_TYPES.has(e.type)) {
         e.dead =
           !e.hidden &&
           (e.type !== "chaser" || Boolean(e.armed)) &&
           (!e.period || cycleOn(e.phase, e.period, e.offset ?? 0, 0.45));
+      }
+    }
+  }
+
+  // ------------------------------------------------------------- combat
+
+  private fireBolt(x: number, y: number, vx: number, vy: number, enemy: boolean) {
+    const b = this.bolts.find((o) => !o.on);
+    if (!b) return;
+    b.on = true;
+    b.x = x;
+    b.y = y;
+    b.vx = vx;
+    b.vy = vy;
+    b.life = enemy ? 3 : 0.85;
+    b.enemy = enemy;
+  }
+
+  private updateLater(dt: number) {
+    for (let i = this.later.length - 1; i >= 0; i--) {
+      const l = this.later[i]!;
+      l.t -= dt;
+      if (l.t <= 0) {
+        this.later.splice(i, 1);
+        this.runOps(l.ops);
+      }
+    }
+  }
+
+  private updateBolts(dt: number) {
+    const p = this.player;
+    for (const b of this.bolts) {
+      if (!b.on) continue;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.life -= dt;
+      if (b.life <= 0 || b.x < -20 || b.x > this.def.w + 20 || b.y < -40 || b.y > this.def.h + 40) {
+        b.on = false;
+        continue;
+      }
+      const box = { x: b.x - 3, y: b.y - 2, w: 6, h: 4 };
+      if (b.enemy) {
+        if (!p.dead && overlap(p, box)) {
+          b.on = false;
+          this.kill(true);
+        }
+        continue;
+      }
+      for (const e of this.ents) {
+        if (e.removed || e.hidden || !overlap(box, e)) continue;
+        if (e.type === "enemy" || e.type === "target") {
+          b.on = false;
+          e.hp--;
+          this.burst(b.x, b.y, 6, "#ffd166");
+          audio.play("hit");
+          if (e.hp <= 0) {
+            e.removed = true;
+            this.burst(e.x + e.w / 2, e.y + e.h / 2, e.kind === "core" ? 40 : 14, e.type === "target" ? "#5ad1ff" : "#ff5d8f");
+            this.shake(e.kind === "core" ? 12 : 3);
+            if (e.type === "enemy") this.kills++;
+            if (e.ops) this.runOps(e.ops);
+          }
+          break;
+        }
+        if (SOLID_TYPES.has(e.type) && !e.soft) {
+          b.on = false;
+          this.burst(b.x, b.y, 3, "#ffd166");
+          if (e.type === "breakable") this.dissolve(e);
+          break;
+        }
+      }
+    }
+  }
+
+  private drawBolts(ctx: CanvasRenderingContext2D) {
+    for (const b of this.bolts) {
+      if (!b.on) continue;
+      if (b.enemy) {
+        ctx.fillStyle = "#ff5d8f";
+        ctx.fillRect(b.x - 3, b.y - 3, 6, 6);
+        ctx.fillStyle = "#ffe0ea";
+        ctx.fillRect(b.x - 1, b.y - 1, 2, 2);
+      } else {
+        ctx.fillStyle = "#ffd166";
+        ctx.fillRect(b.x - 5, b.y - 1.5, 10, 3);
+        ctx.fillStyle = "rgba(255,209,102,0.35)";
+        ctx.fillRect(b.x - 5 - Math.sign(b.vx) * 8, b.y - 1, 8, 2);
       }
     }
   }
@@ -705,29 +912,35 @@ export class GameEngine {
       case "shake":
         this.shake(op.v);
         break;
-      case "gravity":
-        this.gravityMul = op.v;
-        this.shake(5);
-        audio.play("trap");
+      case "gravity": {
+        const g = op.v * (this.chaos?.gravity ?? 1);
+        if (g !== this.gravityMul) {
+          this.shake(5);
+          audio.play("trap");
+        }
+        this.gravityMul = g;
         break;
+      }
       case "reverse":
         this.reverse = op.v;
         this.flash("controls scrambled");
         break;
       case "scale": {
         const p = this.player;
+        const v = op.v * (this.chaos?.scale ?? 1);
+        if (v === p.scale) break;
         const bottom = p.y + p.h;
         const cx = p.x + p.w / 2;
-        p.scale = op.v;
-        p.w = 18 * op.v;
-        p.h = 18 * op.v;
+        p.scale = v;
+        p.w = 18 * v;
+        p.h = 18 * v;
         p.x = cx - p.w / 2;
         p.y = bottom - p.h;
         this.burst(cx, bottom, 12, "#ffd166");
         break;
       }
       case "speed":
-        this.speedMul = op.v;
+        this.speedMul = op.v * (this.chaos?.speed ?? 1);
         break;
       case "goalTo": {
         const goal = this.ents.find((e) => e.type === "goal");
@@ -792,6 +1005,23 @@ export class GameEngine {
         this.shake(6);
         audio.play("trap");
         break;
+      case "shield":
+        this.shield = true;
+        this.flash("shield online");
+        break;
+      case "boom": {
+        const p = this.player;
+        this.burst(p.x + p.w / 2, p.y + p.h / 2, 18, "#ffb347");
+        this.shake(8);
+        p.vy = -420 * (Math.sign(this.gravityMul) || 1);
+        p.vx = -p.face * 220;
+        audio.play("hit");
+        this.flash("BOOM. (you're fine)");
+        break;
+      }
+      case "later":
+        this.later.push({ t: op.t, ops: op.ops });
+        break;
       case "confetti": {
         const p = this.player;
         for (const c of ["#ffd166", "#7cf9c8", "#ff5d8f", "#9d7cff"]) this.burst(p.x + p.w / 2, p.y, 10, c);
@@ -825,7 +1055,7 @@ export class GameEngine {
       if (e.removed) continue;
 
       if (HAZARD_TYPES.has(e.type) && e.dead && !e.hidden && overlap(p, e)) {
-        this.kill();
+        this.kill(true);
         return;
       }
       if (e.hidden || e.collected) continue;
@@ -837,12 +1067,23 @@ export class GameEngine {
             audio.play("checkpoint");
             this.burst(e.x + e.w / 2, e.y, 10, "#7cf9c8");
             this.flash(e.label ?? "checkpoint! (decorative)");
+            if (e.ops) this.runOps(e.ops);
           }
           break;
         case "button":
           if (!e.touched && overlap(p, e)) {
             e.touched = true;
             audio.play("click");
+            if (e.ops) this.runOps(e.ops);
+          }
+          break;
+        case "chest":
+        case "powerup":
+          if (overlap(p, e)) {
+            e.collected = true;
+            audio.play(e.type === "chest" ? "click" : "checkpoint");
+            this.burst(e.x + e.w / 2, e.y + e.h / 2, 12, e.trap ? "#ff5d8f" : "#ffd166");
+            if (e.ops) this.runOps(e.ops);
           }
           break;
         case "coin":
@@ -929,13 +1170,25 @@ export class GameEngine {
         par,
         bonus,
         bonusText: b?.text ?? null,
+        enemies: this.kills,
       });
     }, 420);
   }
 
-  private kill() {
+  private kill(hazard: boolean) {
     const p = this.player;
     if (p.dead) return;
+    if (hazard && this.invuln > 0) return;
+    if (hazard && this.shield) {
+      this.shield = false;
+      this.invuln = 1;
+      p.vy = -360 * (Math.sign(this.gravityMul) || 1);
+      this.burst(p.x + p.w / 2, p.y + p.h / 2, 16, "#5ad1ff");
+      this.shake(5);
+      audio.play("hit");
+      this.flash("shield popped!");
+      return;
+    }
     p.dead = true;
     this.deaths++;
     this.respawnTimer = 0.42;
@@ -1128,6 +1381,7 @@ export class GameEngine {
     this.drawEntities(ctx, hc);
     this.drawHint(ctx);
     this.drawPlayer(ctx, hc);
+    this.drawBolts(ctx);
     this.drawParticles(ctx);
     ctx.restore();
 
@@ -1199,6 +1453,25 @@ export class GameEngine {
           break;
         }
         case "fall": {
+          if (e.kind === "crack") {
+            // looks like a normal floor until you step on it
+            const jit = e.touched && !e.falling ? (Math.random() - 0.5) * 1.5 : 0;
+            block(ctx, e.x + jit, e.y, e.w, e.h, hc ? "#ffffff" : "#7cf9c8");
+            if (e.touched) {
+              ctx.strokeStyle = "#0d0f1c";
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              for (let i = 1; i < 4; i++) {
+                const cx = e.x + (e.w * i) / 4;
+                ctx.moveTo(cx - 6, e.y);
+                ctx.lineTo(cx + 2, e.y + 8);
+                ctx.lineTo(cx - 3, e.y + 16);
+              }
+              ctx.stroke();
+              ctx.lineWidth = 1;
+            }
+            break;
+          }
           block(ctx, e.x, e.y, e.w, e.h, hc ? "#dddddd" : "#c6f36d", e.touched ? 0.8 : 1);
           dots(ctx, e);
           break;
@@ -1362,6 +1635,123 @@ export class GameEngine {
           }
           break;
         }
+        case "enemy": {
+          const k = e.kind ?? "crawler";
+          const col = hc ? "#ffffff" : k === "sentry" || k === "core" ? "#ff8a3d" : "#ff5d8f";
+          ctx.fillStyle = col;
+          ctx.fillRect(e.x, e.y, e.w, e.h);
+          if (k === "sentry" || k === "core") {
+            const per = (e.period ?? (k === "core" ? 1.6 : 2.4)) / this.hazardMul;
+            if (e.timer > per - 0.7) {
+              const a = 0.4 + 0.6 * Math.abs(Math.sin(e.phase * 20));
+              ctx.fillStyle = `rgba(255,240,180,${a})`;
+              ctx.fillRect(e.x + e.w / 2 - 3, e.y + e.h * 0.4 - 3, 6, 6);
+            }
+            if (k === "core") {
+              ctx.fillStyle = "#07070d";
+              ctx.fillRect(e.x + 4, e.y + e.h - 6, e.w - 8, 3);
+              ctx.fillStyle = "#7cf9c8";
+              ctx.fillRect(e.x, e.y - 6, (e.w * e.hp) / (e.hp > 0 ? 14 : 1), 3);
+            }
+          }
+          // angry eyes
+          ctx.fillStyle = "#0d0f1c";
+          const dir = Math.sign(pcx - (e.x + e.w / 2)) || 1;
+          ctx.fillRect(e.x + e.w * 0.25 + dir, e.y + 3, 3, 3);
+          ctx.fillRect(e.x + e.w * 0.62 + dir, e.y + 3, 3, 3);
+          ctx.fillRect(e.x + e.w * 0.2, e.y + 2, e.w * 0.6, 1);
+          if (k === "crawler") {
+            ctx.fillStyle = col;
+            const leg = Math.sin(e.phase * 14) > 0 ? 1 : 0;
+            ctx.fillRect(e.x + 2 + leg, e.y + e.h, 3, 2);
+            ctx.fillRect(e.x + e.w - 5 - leg, e.y + e.h, 3, 2);
+          }
+          break;
+        }
+        case "laser": {
+          const st = laserState(e);
+          ctx.fillStyle = "#3a3f5c";
+          const vert = e.h >= e.w;
+          if (vert) ctx.fillRect(e.x - 3, e.y - 6, e.w + 6, 6);
+          else ctx.fillRect(e.x - 6, e.y - 3, 6, e.h + 6);
+          if (st === 0) ctx.fillStyle = "rgba(255,93,143,0.12)";
+          else if (st === 1) ctx.fillStyle = `rgba(255,93,143,${0.25 + 0.35 * Math.abs(Math.sin(e.phase * 18))})`;
+          else ctx.fillStyle = hc ? "#ffffff" : "#ff3d7f";
+          if (st === 2) ctx.fillRect(e.x, e.y, e.w, e.h);
+          else if (vert) ctx.fillRect(e.x + e.w / 2 - 0.5, e.y, 1, e.h);
+          else ctx.fillRect(e.x, e.y + e.h / 2 - 0.5, e.w, 1);
+          if (st === 2) {
+            ctx.fillStyle = "rgba(255,240,245,0.8)";
+            if (vert) ctx.fillRect(e.x + e.w / 2 - 1, e.y, 2, e.h);
+            else ctx.fillRect(e.x, e.y + e.h / 2 - 1, e.w, 2);
+          }
+          break;
+        }
+        case "boulder": {
+          const cx = e.x + e.w / 2;
+          const cy = e.y + e.h / 2;
+          ctx.fillStyle = hc ? "#ffffff" : "#9a8f7a";
+          ctx.beginPath();
+          ctx.arc(cx, cy, e.w / 2, 0, Math.PI * 2);
+          ctx.fill();
+          const r = e.armed ? e.x / (e.w / 2) : 0;
+          ctx.strokeStyle = "#5a5446";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(r) * e.w * 0.4, cy + Math.sin(r) * e.w * 0.4);
+          ctx.lineTo(cx - Math.cos(r) * e.w * 0.4, cy - Math.sin(r) * e.w * 0.4);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+          break;
+        }
+        case "dashwall": {
+          const warn = e.armed && e.timer <= 0.8;
+          ctx.fillStyle = hc ? "#ffffff" : "#c45bff";
+          ctx.fillRect(e.x, e.y, e.w, e.h);
+          ctx.fillStyle = warn && Math.sin(e.phase * 30) > 0 ? "#ffd166" : "#2a1240";
+          for (let yy = e.y + 4; yy < e.y + e.h - 4; yy += 12) ctx.fillRect(e.x + 3, yy, e.w - 6, 5);
+          if (warn) {
+            ctx.fillStyle = "rgba(255,209,102,0.18)";
+            const tx = e.ox + (e.dx ?? 0);
+            ctx.fillRect(Math.min(e.x, tx), e.y, Math.abs(tx - e.x) + e.w, e.h);
+          }
+          break;
+        }
+        case "chest": {
+          if (e.collected) {
+            ctx.fillStyle = "rgba(201,138,60,0.35)";
+            ctx.fillRect(e.x, e.y + 8, e.w, e.h - 8);
+            break;
+          }
+          ctx.fillStyle = hc ? "#ffffff" : "#c98a3c";
+          ctx.fillRect(e.x, e.y + 4, e.w, e.h - 4);
+          ctx.fillStyle = hc ? "#cccccc" : "#e6a957";
+          ctx.fillRect(e.x - 1, e.y, e.w + 2, 6);
+          // clue: troll chests have a crooked pink latch
+          ctx.fillStyle = e.trap ? "#ff5d8f" : "#ffd166";
+          ctx.fillRect(e.x + e.w / 2 - 2 + (e.trap ? 2 : 0), e.y + 4, 4, 5);
+          break;
+        }
+        case "powerup": {
+          if (e.collected) break;
+          const bob = Math.sin(e.phase * 3) * 2;
+          const a = e.trap ? 0.55 + 0.45 * Math.abs(Math.sin(e.phase * 9)) : 0.9;
+          ctx.fillStyle = `rgba(90,209,255,${a})`;
+          ctx.fillRect(e.x, e.y + bob, e.w, e.h);
+          ctx.fillStyle = "#e8fbff";
+          ctx.fillRect(e.x + e.w / 2 - 1, e.y + 2 + bob, 2, e.h - 4);
+          ctx.fillRect(e.x + 2, e.y + e.h / 2 - 1 + bob, e.w - 4, 2);
+          break;
+        }
+        case "target": {
+          ctx.strokeStyle = hc ? "#ffffff" : "#5ad1ff";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(e.x + 1, e.y + 1, e.w - 2, e.h - 2);
+          ctx.fillStyle = `rgba(90,209,255,${0.5 + 0.5 * Math.sin(e.phase * 4)})`;
+          ctx.fillRect(e.x + e.w / 2 - 2, e.y + e.h / 2 - 2, 4, 4);
+          ctx.lineWidth = 1;
+          break;
+        }
         case "checkpoint":
         case "fakecheckpoint": {
           ctx.fillStyle = e.collected ? "#7cf9c8" : "rgba(124,249,200,0.35)";
@@ -1413,7 +1803,14 @@ export class GameEngine {
   private drawPlayer(ctx: CanvasRenderingContext2D, hc: boolean) {
     const p = this.player;
     if (p.dead) return;
+    if (this.invuln > 0 && Math.sin(this.clock * 40) > 0) return;
     const s = p.scale;
+    if (this.shield) {
+      ctx.strokeStyle = `rgba(90,209,255,${0.5 + 0.3 * Math.sin(this.clock * 6)})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(p.x - 3, p.y - 3, p.w + 6, p.h + 6);
+      ctx.lineWidth = 1;
+    }
     // squash & stretch around the feet
     const ax = p.x + p.w / 2;
     const ay = p.y + p.h;

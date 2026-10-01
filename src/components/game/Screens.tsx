@@ -315,6 +315,10 @@ export function CompleteScreen({
             {result.coins}/{result.coinTotal}
           </dd>
         </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Enemies zapped</dt>
+          <dd>{result.enemies}</dd>
+        </div>
       </dl>
       <div className="mt-6 grid gap-3">
         <Btn variant="primary" onClick={onNext}>
@@ -345,7 +349,7 @@ export function EndingScreen({
           inside with a clipboard.
         </p>
         <p>
-          "Sixty levels," they say, "and you fell {save.deaths} times. Statistically, the floor won."
+          "Thirty levels," they say, "and you fell {save.deaths} times. Statistically, the floor won."
         </p>
         <p>
           The robot blinks twice, unscrews the clipboard, and writes one line under the last trap:
@@ -374,7 +378,7 @@ export function Hud({
 }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-3">
-      <div className="font-pixel text-[9px] leading-relaxed text-primary sm:text-[11px]">
+      <div className="rounded-sm bg-background/80 px-2 py-1 font-pixel text-[9px] leading-relaxed text-primary sm:text-[11px]">
         <p>
           LEVEL {String(hud.level + 1).padStart(2, "0")} · {hud.name}
         </p>
@@ -411,11 +415,11 @@ export function TouchControls({
   onRestart,
 }: {
   big: boolean;
-  onHold: (action: "left" | "right" | "jump", down: boolean) => void;
+  onHold: (action: "left" | "right" | "jump" | "shoot", down: boolean) => void;
   onRestart: () => void;
 }) {
   const size = big ? "h-24 w-24 text-base" : "h-18 w-18 text-sm";
-  const pad = (action: "left" | "right" | "jump", label: string, extra = "") => (
+  const pad = (action: "left" | "right" | "jump" | "shoot", label: string, extra = "") => (
     <button
       type="button"
       aria-label={action}
@@ -447,6 +451,7 @@ export function TouchControls({
         >
           R
         </button>
+        {pad("shoot", "✦", "border-accent/70")}
         {pad("jump", "▲", "border-primary/70")}
       </div>
     </div>
